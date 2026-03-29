@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inclusion-Exclusion Reduce Simulator</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --grid-bg: #fff;
+            --node-idle: #e0e0e0;
+            --node-active: #2196F3;
+            --node-sending: #FF9800;
+            --node-root: #4CAF50;
+            --text-color: #333;
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); color: var(--text-color); padding: 20px; text-align: center; }
+
+        .controls { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: inline-block; margin-bottom: 20px; }
+        select, button, input { padding: 8px 12px; margin: 5px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+        button { cursor: pointer; background: #333; color: white; border: none; }
+        button:hover { background: #555; }
+        button:disabled { background: #ccc; cursor: not-started; }
+
+        #viz-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin-top: 20px; }
+        .layer-container { display: flex; flex-direction: column; align-items: center; }
+        .layer-label { margin-bottom: 5px; font-weight: bold; color: #666; }
+
+        .grid {
+            display: grid;
+            gap: 4px;
+            background: #ccc;
+            padding: 4px;
+            border-radius: 4px;
+        }
+
+        .node {
+            width: 40px; height: 40px;
+            background: var(--node-idle);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; color: #555;
+            transition: background 0.3s ease;
+            border-radius: 2px;
+            font-weight: bold;
+        }
+
+        .node.root { background: var(--node-root) !important; color: white; }
+        .node.sending { background: var(--node-sending); color: white; }
+        .node.computing { background: var(--node-active); color: white; }
+        .node.completed { background: #9E9E9E; color: white; }
+
+        .stats { margin-top: 20px; font-size: 1.2em; }
+        .description { max-width: 800px; margin: 20px auto; padding: 15px; background: white; border-radius: 8px; text-align: left; }
+
+    </style>
+</head>
+<body>
+
+    <h1>🧮 Inclusion-Exclusion Reduce Simulator</h1>
+    <div class="description">
+        <h3>Algorithm Description:</h3>
+        <p><strong>Inclusion-Exclusion Reduce:</strong> Each node waits for data from its West, North, and North-West diagonal neighbors, then computes:</p>
+        <p><code>result = local_value + value_from_west + value_from_north - value_from_north_west_diagonal</code></p>
+        <p>This formula follows the inclusion-exclusion principle to avoid double-counting.</p>
+        <p><strong>Wave Pattern:</strong> The computation propagates in diagonal waves from bottom-right (N-1, N-1) to top-left (0, 0). All nodes in the same diagonal can compute in parallel once their dependencies arrive.</p>
+        <p><strong>3D Extension:</strong> Similar principle starting from (N-1, N-1, N-1) and propagating to (0, 0, 0) with 7 incoming dependencies.</p>
+        <ul>
+            <li>🟢 <strong>Green:</strong> Root node (0,0,0) - final accumulator</li>
+            <li>🔵 <strong>Blue:</strong> Computing/receiving data</li>
+            <li>🟠 <strong>Orange:</strong> Sending data</li>
+            <li>⚪ <strong>Gray:</strong> Completed</li>
+        </ul>
+    </div>
+
+    <div class="controls">
+        <label>Dimensions:
+            <select id="dimSelect">
+                <option value="2">2D Mesh</option>
+                <option value="3">3D Mesh</option>
+            </select>
+        </label>
+        <label>Size (N): <input type="number" id="sizeInput" value="4" min="2" max="6" style="width: 50px;"></label>
+        <hr>
+        <button onclick="sim.reset()">Reset</button>
+        <button onclick="sim.step()">Step</button>
+        <button onclick="sim.play()" id="playBtn">Play</button>
+        <button onclick="sim.pause()">Pause</button>
+        <label>Speed: <input type="range" id="speedSlider" min="100" max="2000" value="500" step="100"></label>
+    </div>
+
+    <div class="stats">
+        Round: <span id="roundDisplay">0</span> |
+        Wave: <span id="waveDisplay">0</span> |
+        Status: <span id="statusDisplay">Ready</span>
+
+    </div>
+
+    <div id="viz-container"></div>
+
+<script>
+class InclusionExclusionReduceSimulator {
+    constructor() {
+        this.N = 4;
+        this.is3D = false;
+        this.nodes = [];
+        this.timer = null;
+        this.round = 0;
+        this.running = false;
+        this.rootSum = 0;
+
+        this.currentWave = 0;
+        this.maxWave = 0;
+    }
+
+    idx(x, y, z=0) {
+        if (!this.is3D) z = 0;
+        return z * this.N * this.N + y * this.N + x;
+    }
+
+    coords(i) {
+        const N = this.N;
+        const z = this.is3D ? Math.floor(i / (N * N)) : 0;
+        const rem = i % (N * N);
+        const y = Math.floor(rem / N);
+        const x = rem % N;
+        return {x, y, z};
+    }
+
+    init() {
+        this.is3D = document.getElementById('dimSelect').value === '3';
+        this.N = parseInt(document.getElementById('sizeInput').value);
+
+        const totalNodes = this.is3D ? this.N**3 : this.N**2;
+        this.nodes = new Array(totalNodes).fill(0).map((_, i) => ({
+            id: i,
+            value: 1,
+            computed: false,
+            computing: false,
+            sending: false,
+            wave: -1
+        }));
+
+        this.rootSum = 1;
+        this.currentWave = 0;
+        this.maxWave = this.is3D ? (3 * (this.N - 1)) : (2 * (this.N - 1));
+        this.round = 0;
+
+        for (let i = 0; i < totalNodes; i++) {
+            const {x, y, z} = this.coords(i);
+            this.nodes[i].wave = this.is3D
+                ? ((this.N - 1 - x) + (this.N - 1 - y) + (this.N - 1 - z))
+                : ((this.N - 1 - x) + (this.N - 1 - y));
+        }
+
+        this.renderGrid();
+        this.updateStats();
+    }
+
+    step() {
+        if (this.currentWave > this.maxWave) {
+            this.pause();
+            return;
+        }
+
+        this.round++;
+
+        const waveNodes = [];
+        for (let i = 0; i < this.nodes.length; i++) {
+            const {x, y, z} = this.coords(i);
+            if (this.nodes[i].wave === this.currentWave && !this.nodes[i].computed) {
+                waveNodes.push(i);
+            }
+        }
+
+        waveNodes.forEach(i => {
+            this.nodes[i].computing = true;
+        });
+
+        this.drawState();
+
+        setTimeout(() => {
+            waveNodes.forEach(i => {
+                const {x, y, z} = this.coords(i);
+                let result = this.nodes[i].value;
+
+                if (this.is3D) {
+
+                    const getValue = (nx, ny, nz) => {
+                        if (nx < 0 || ny < 0 || nz < 0 || nx >= this.N || ny >= this.N || nz >= this.N) return 0;
+                        const idx = this.idx(nx, ny, nz);
+                        return this.nodes[idx].computed ? this.nodes[idx].value : 0;
+                    };
+
+                    result += getValue(x-1, y, z);
+                    result += getValue(x, y-1, z);
+                    result += getValue(x, y, z-1);
+                    result -= getValue(x-1, y-1, z);
+                    result -= getValue(x-1, y, z-1);
+                    result -= getValue(x, y-1, z-1);
+                    result += getValue(x-1, y-1, z-1);
+                } else {
+
+                    const getValue = (nx, ny) => {
+                        if (nx < 0 || ny < 0 || nx >= this.N || ny >= this.N) return 0;
+                        const idx = this.idx(nx, ny, 0);
+                        return this.nodes[idx].computed ? this.nodes[idx].value : 0;
+                    };
+
+                    result += getValue(x-1, y);
+                    result += getValue(x, y-1);
+                    result -= getValue(x-1, y-1);
+                }
+
+                this.nodes[i].value = result;
+                this.nodes[i].computing = false;
+                this.nodes[i].sending = true;
+                this.nodes[i].computed = true;
+
+                if (i === 0) {
+                    this.rootSum = result;
+                } else {
+
+                    this.rootSum++;
+                }
+            });
+
+            this.drawState();
+
+            setTimeout(() => {
+                waveNodes.forEach(i => {
+                    this.nodes[i].sending = false;
+                });
+                this.drawState();
+            }, 150);
+
+        }, 200);
+
+        this.currentWave++;
+        this.updateStats();
+    }
+
+    renderGrid() {
+        const container = document.getElementById('viz-container');
+        container.innerHTML = '';
+
+        const layers = this.is3D ? this.N : 1;
+
+        for (let z = 0; z < layers; z++) {
+            const layerDiv = document.createElement('div');
+            layerDiv.className = 'layer-container';
+            if (this.is3D) {
+                layerDiv.innerHTML = `<div class="layer-label">Z-Layer ${z}</div>`;
+            }
+
+            const grid = document.createElement('div');
+            grid.className = 'grid';
+            grid.style.gridTemplateColumns = `repeat(${this.N}, 40px)`;
+
+            for (let y = 0; y < this.N; y++) {
+                for (let x = 0; x < this.N; x++) {
+                    const i = this.idx(x, y, z);
+                    const cell = document.createElement('div');
+                    cell.className = 'node';
+                    cell.id = `node-${i}`;
+                    cell.innerText = `${x},${y}${this.is3D ? ','+z : ''}`;
+
+                    if (i === 0) cell.classList.add('root');
+
+                    grid.appendChild(cell);
+                }
+            }
+            layerDiv.appendChild(grid);
+            container.appendChild(layerDiv);
+        }
+        this.drawState();
+    }
+
+    drawState() {
+        this.nodes.forEach((n, i) => {
+            const el = document.getElementById(`node-${i}`);
+            if (!el) return;
+
+            el.classList.remove('computing', 'sending', 'completed');
+
+            if (n.computing) {
+                el.classList.add('computing');
+            } else if (n.sending) {
+                el.classList.add('sending');
+            } else if (n.computed) {
+                el.classList.add('completed');
+            }
+        });
+    }
+
+    updateStats() {
+        document.getElementById('roundDisplay').innerText = this.round;
+        document.getElementById('waveDisplay').innerText = this.currentWave;
+
+        let status = "Running";
+        if (this.currentWave > this.maxWave) {
+            status = `✓ Completed - Final Sum: ${this.rootSum}`;
+        }
+
+        document.getElementById('statusDisplay').innerText = status;
+    }
+
+    play() {
+        if (this.running) return;
+        this.running = true;
+        const speed = parseInt(document.getElementById('speedSlider').value);
+        this.timer = setInterval(() => this.step(), speed);
+    }
+
+    pause() {
+        this.running = false;
+        if (this.timer) clearInterval(this.timer);
+    }
+
+    reset() {
+        this.pause();
+        this.init();
+    }
+}
+
+const sim = new InclusionExclusionReduceSimulator();
+sim.init();
+
+document.getElementById('dimSelect').addEventListener('change', () => sim.reset());
+document.getElementById('sizeInput').addEventListener('change', () => sim.reset());
+</script>
+
+</body>
+</html>

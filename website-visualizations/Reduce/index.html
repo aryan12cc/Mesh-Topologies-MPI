@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reduce Algorithm Visualizations</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 3em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .subtitle {
+            color: rgba(255, 255, 255, 0.9);
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 1.2em;
+        }
+
+        .description {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            margin-bottom: 40px;
+        }
+
+        .description h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .description p {
+            line-height: 1.6;
+            color: #555;
+            margin-bottom: 10px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .card h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            text-align: center;
+        }
+
+        .card p {
+            color: #666;
+            line-height: 1.6;
+            text-align: center;
+        }
+
+        .card .complexity {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 6px;
+            font-size: 0.9em;
+            color: #444;
+        }
+
+        .back-link {
+            display: inline-block;
+            background: white;
+            color: #667eea;
+            padding: 12px 30px;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: bold;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .back-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 7px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔻 Reduce Algorithm Visualizations</h1>
+        <p class="subtitle">Interactive visualizations of distributed reduction algorithms on 2D and 3D mesh networks
+        </p>
+
+        <div class="description">
+            <h2>What is Reduce?</h2>
+            <p>
+                <strong>Reduce</strong> is a collective operation where all processes contribute data that gets
+                combined (e.g., summed) at a single root process. This is the reverse of broadcast - data flows
+                from many sources to one destination.
+            </p>
+            <p>
+                In a mesh network, each node starts with a local value (typically 1), and these values are
+                aggregated at the root node (0,0) using different routing strategies. The goal is to minimize
+                communication time and path conflicts.
+            </p>
+            <p>
+                Each algorithm below represents a different approach to performing this reduction operation
+                efficiently on 2D and 3D mesh topologies.
+            </p>
+        </div>
+
+        <div class="grid">
+            <a href="brute.html" class="card">
+                <div class="card-icon">🔴</div>
+                <h3>Brute Force</h3>
+                <p>
+                    Sequential reduction where the root (0,0) receives messages from all N²−1 nodes one at a time.
+                    Each source routes its data hop-by-hop to the root.
+                </p>
+                <div class="complexity">
+                    <strong>Complexity:</strong> O(N³) for 2D, O(N⁴) for 3D<br>
+                    Simple but inefficient baseline approach
+                </div>
+            </a>
+
+            <a href="bfs.html" class="card">
+                <div class="card-icon">🌲</div>
+                <h3>Inclusion-Exclusion</h3>
+                <p>
+                    Wavefront reduction using inclusion-exclusion dependencies.
+                    Nodes combine values from neighbors and propagate results diagonally toward the root.
+                </p>
+                <div class="complexity">
+                    <strong>Complexity:</strong> O(N²) for 2D, O(N³) for 3D<br>
+                    Dependency-driven diagonal wave propagation
+                </div>
+            </a>
+
+            <a href="Row_pipeline.html" class="card">
+                <div class="card-icon">📊</div>
+                <h3>Row-Column Pipeline</h3>
+                <p>
+                    Two-phase reduction: first reduce within rows (east→west), then reduce column leaders
+                    vertically (south→north) to the root.
+                </p>
+                <div class="complexity">
+                    <strong>Complexity:</strong> O(N) for 2D, O(N) for 3D<br>
+                    Efficient pipelined approach with parallel reduction
+                </div>
+            </a>
+
+            <a href="recursive.html" class="card">
+                <div class="card-icon">🔄</div>
+                <h3>Recursive Quadrant</h3>
+                <p>
+                    Recursively divide the grid into quadrants (2D) or octants (3D). Each region reduces
+                    internally, then sends its result to the parent region's root.
+                </p>
+                <div class="complexity">
+                    <strong>Complexity:</strong> O(N) for 2D, O(N) for 3D<br>
+                    Divide-and-conquer with recursive subdivision
+                </div>
+            </a>
+
+            <a href="sqrt.html" class="card">
+                <div class="card-icon">🔲</div>
+                <h3>Hierarchical (Block-Based)</h3>
+                <p>
+                    Divide into √N blocks of size √N×√N. Each block reduces internally using row-column
+                    pipeline, then block leaders send to the global root.
+                </p>
+                <div class="complexity">
+                    <strong>Complexity:</strong> O(√N) for 2D, O(N^(2/3)) for 3D<br>
+                    Optimal two-level hierarchical reduction
+                </div>
+            </a>
+        </div>
+
+        <div class="footer">
+            <a href="../index.html" class="back-link" onclick="history.back(); return false;">← Back to Main Menu</a>
+        </div>
+    </div>
+</body>
+
+</html>

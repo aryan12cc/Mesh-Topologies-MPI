@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brute Force Reduce Simulator</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --grid-bg: #fff;
+            --node-idle: #e0e0e0;
+            --node-active: #2196F3;
+            --node-sending: #FF9800;
+            --node-root: #4CAF50;
+            --text-color: #333;
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); color: var(--text-color); padding: 20px; text-align: center; }
+
+        .controls { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: inline-block; margin-bottom: 20px; }
+        select, button, input { padding: 8px 12px; margin: 5px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+        button { cursor: pointer; background: #333; color: white; border: none; }
+        button:hover { background: #555; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        #viz-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin-top: 20px; }
+        .layer-container { display: flex; flex-direction: column; align-items: center; }
+        .layer-label { margin-bottom: 5px; font-weight: bold; color: #666; }
+
+        .grid {
+            display: grid;
+            gap: 4px;
+            background: #ccc;
+            padding: 4px;
+            border-radius: 4px;
+        }
+
+        .node {
+            width: 40px; height: 40px;
+            background: var(--node-idle);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; color: #555;
+            transition: background 0.3s ease;
+            border-radius: 2px;
+            font-weight: bold;
+        }
+
+        .node.root { background: var(--node-root) !important; color: white; }
+        .node.sending { background: var(--node-sending); color: white; }
+        .node.routing { background: var(--node-active); color: white; }
+        .node.completed { background: #9E9E9E; color: white; }
+
+        .stats { margin-top: 20px; font-size: 1.2em; }
+        .description { max-width: 800px; margin: 20px auto; padding: 15px; background: white; border-radius: 8px; text-align: left; }
+
+    </style>
+</head>
+<body>
+
+    <h1>🔴 Brute Force Reduce Simulator</h1>
+    <div class="description">
+        <h3>Algorithm Description:</h3>
+        <p><strong>Baseline (Brute-Force) Reduce:</strong> The root process (0, 0) sequentially receives messages from all N² − 1 other processes, one at a time.</p>
+        <p><strong>Routing:</strong> From each source (i, j), the data travels hop-by-hop to (0,0): (i,j) → ... → (i,0) → ... → (0,0)</p>
+        <p><strong>Operation:</strong> Each node sends its local value (1) to the root, which accumulates the sum.</p>
+        <ul>
+            <li>🟢 <strong>Green:</strong> Root node (0,0) - accumulates the sum</li>
+            <li>🟠 <strong>Orange:</strong> Current source node sending data</li>
+            <li>🔵 <strong>Blue:</strong> Intermediate routing hops</li>
+            <li>⚪ <strong>Gray:</strong> Completed (data already sent)</li>
+        </ul>
+    </div>
+
+    <div class="controls">
+        <label>Dimensions:
+            <select id="dimSelect">
+                <option value="2">2D Mesh</option>
+                <option value="3">3D Mesh</option>
+            </select>
+        </label>
+        <label>Size (N): <input type="number" id="sizeInput" value="4" min="2" max="6" style="width: 50px;"></label>
+        <hr>
+        <button onclick="sim.reset()">Reset</button>
+        <button onclick="sim.step()">Step</button>
+        <button onclick="sim.play()" id="playBtn">Play</button>
+        <button onclick="sim.pause()">Pause</button>
+        <label>Speed: <input type="range" id="speedSlider" min="100" max="2000" value="500" step="100"></label>
+    </div>
+
+    <div class="stats">
+        Round: <span id="roundDisplay">0</span> |
+        Source: <span id="sourceDisplay">-</span> |
+        Status: <span id="statusDisplay">Ready</span>
+
+    </div>
+
+    <div id="viz-container"></div>
+
+<script>
+class BruteForceReduceSimulator {
+    constructor() {
+        this.N = 4;
+        this.is3D = false;
+        this.nodes = [];
+        this.timer = null;
+        this.round = 0;
+        this.running = false;
+        this.accumulatedSum = 0;
+
+        this.sourceQueue = [];
+        this.currentSource = null;
+        this.currentPath = [];
+        this.pathIndex = 0;
+    }
+
+    idx(x, y, z=0) {
+        if (!this.is3D) z = 0;
+        return z * this.N * this.N + y * this.N + x;
+    }
+
+    coords(i) {
+        const N = this.N;
+        const z = this.is3D ? Math.floor(i / (N * N)) : 0;
+        const rem = i % (N * N);
+        const y = Math.floor(rem / N);
+        const x = rem % N;
+        return {x, y, z};
+    }
+
+    init() {
+        this.is3D = document.getElementById('dimSelect').value === '3';
+        this.N = parseInt(document.getElementById('sizeInput').value);
+
+        const totalNodes = this.is3D ? this.N**3 : this.N**2;
+        this.nodes = new Array(totalNodes).fill(0).map((_, i) => ({
+            id: i,
+            completed: false,
+            isRouting: false,
+            isSending: false
+        }));
+
+        this.accumulatedSum = 1;
+        this.initSourceQueue();
+        this.round = 0;
+        this.renderGrid();
+        this.updateStats();
+    }
+
+    initSourceQueue() {
+        this.sourceQueue = [];
+        this.currentSource = null;
+        this.currentPath = [];
+        this.pathIndex = 0;
+
+        if (this.is3D) {
+            for (let y = 0; y < this.N; y++) {
+                for (let x = 0; x < this.N; x++) {
+                    for (let z = 0; z < this.N; z++) {
+                        if (x === 0 && y === 0 && z === 0) continue;
+                        this.sourceQueue.push({x, y, z});
+                    }
+                }
+            }
+        } else {
+            for (let y = 0; y < this.N; y++) {
+                for (let x = 0; x < this.N; x++) {
+                    if (x === 0 && y === 0) continue;
+                    this.sourceQueue.push({x, y, z: 0});
+                }
+            }
+        }
+    }
+
+    computePath(sx, sy, sz, dx, dy, dz) {
+        const path = [];
+        let x = sx, y = sy, z = sz;
+
+        path.push({x, y, z});
+
+        while (x !== dx) {
+            x += (dx > x) ? 1 : -1;
+            path.push({x, y, z});
+        }
+
+        while (y !== dy) {
+            y += (dy > y) ? 1 : -1;
+            path.push({x, y, z});
+        }
+
+        if (this.is3D) {
+            while (z !== dz) {
+                z += (dz > z) ? 1 : -1;
+                path.push({x, y, z});
+            }
+        }
+
+        return path;
+    }
+
+    step() {
+        this.round++;
+
+        if (!this.currentSource && this.sourceQueue.length > 0) {
+            this.currentSource = this.sourceQueue.shift();
+            this.currentPath = this.computePath(
+                this.currentSource.x, this.currentSource.y, this.currentSource.z,
+                0, 0, 0
+            );
+            this.pathIndex = 0;
+            this.nodes.forEach(n => {
+                n.isRouting = false;
+                n.isSending = false;
+            });
+        }
+
+        if (this.currentSource) {
+            if (this.pathIndex < this.currentPath.length) {
+                const pos = this.currentPath[this.pathIndex];
+                const idx = this.idx(pos.x, pos.y, pos.z);
+
+                if (this.pathIndex === 0) {
+                    this.nodes[idx].isSending = true;
+                } else if (this.pathIndex === this.currentPath.length - 1) {
+
+                    this.accumulatedSum += 1;
+                    this.nodes[idx].isRouting = false;
+
+                    const srcIdx = this.idx(this.currentSource.x, this.currentSource.y, this.currentSource.z);
+                    this.nodes[srcIdx].completed = true;
+                    this.nodes[srcIdx].isSending = false;
+
+                    this.currentSource = null;
+                } else {
+                    this.nodes[idx].isRouting = true;
+                }
+
+                this.pathIndex++;
+            }
+        }
+
+        this.drawState();
+        this.updateStats();
+    }
+
+    renderGrid() {
+        const container = document.getElementById('viz-container');
+        container.innerHTML = '';
+
+        const layers = this.is3D ? this.N : 1;
+
+        for (let z = 0; z < layers; z++) {
+            const layerDiv = document.createElement('div');
+            layerDiv.className = 'layer-container';
+            if (this.is3D) {
+                layerDiv.innerHTML = `<div class="layer-label">Z-Layer ${z}</div>`;
+            }
+
+            const grid = document.createElement('div');
+            grid.className = 'grid';
+            grid.style.gridTemplateColumns = `repeat(${this.N}, 40px)`;
+
+            for (let y = 0; y < this.N; y++) {
+                for (let x = 0; x < this.N; x++) {
+                    const i = this.idx(x, y, z);
+                    const cell = document.createElement('div');
+                    cell.className = 'node';
+                    cell.id = `node-${i}`;
+                    cell.innerText = `${x},${y}${this.is3D ? ','+z : ''}`;
+
+                    if (i === 0) cell.classList.add('root');
+
+                    grid.appendChild(cell);
+                }
+            }
+            layerDiv.appendChild(grid);
+            container.appendChild(layerDiv);
+        }
+        this.drawState();
+    }
+
+    drawState() {
+        this.nodes.forEach((n, i) => {
+            const el = document.getElementById(`node-${i}`);
+            if (!el) return;
+
+            el.classList.remove('routing', 'completed', 'sending');
+
+            if (n.isSending) {
+                el.classList.add('sending');
+            } else if (n.isRouting) {
+                el.classList.add('routing');
+            } else if (n.completed) {
+                el.classList.add('completed');
+            }
+        });
+    }
+
+    updateStats() {
+        document.getElementById('roundDisplay').innerText = this.round;
+
+        const sourceText = this.currentSource
+            ? `(${this.currentSource.x},${this.currentSource.y}${this.is3D ? ','+this.currentSource.z : ''})`
+            : 'None';
+        document.getElementById('sourceDisplay').innerText = sourceText;
+
+        let status = "Running";
+        const total = this.nodes.length;
+
+        if (this.sourceQueue.length === 0 && !this.currentSource) {
+            status = `✓ Completed - Final Sum: ${this.accumulatedSum}`;
+            this.pause();
+        }
+
+        document.getElementById('statusDisplay').innerText = status;
+    }
+
+    play() {
+        if(this.running) return;
+        this.running = true;
+        const speed = parseInt(document.getElementById('speedSlider').value);
+        this.timer = setInterval(() => this.step(), speed);
+    }
+
+    pause() {
+        this.running = false;
+        clearInterval(this.timer);
+    }
+
+    reset() {
+        this.pause();
+        this.init();
+    }
+}
+
+const sim = new BruteForceReduceSimulator();
+window.onload = () => sim.init();
+
+document.getElementById('dimSelect').onchange = () => sim.reset();
+document.getElementById('sizeInput').onchange = () => sim.reset();
+document.getElementById('speedSlider').oninput = function() {
+    if (sim.running) {
+        sim.pause();
+        sim.play();
+    }
+};
+</script>
+</body>
+</html>

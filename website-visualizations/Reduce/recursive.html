@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recursive Quadrant Reduce Simulator</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --grid-bg: #fff;
+            --node-idle: #e0e0e0;
+            --node-root: #f44336;
+            --node-completed: #4CAF50;
+            --node-routing: #2196F3;
+            --node-sending: #FF9800;
+            --text-color: #333;
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); color: var(--text-color); padding: 20px; text-align: center; }
+
+        .controls { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: inline-block; margin-bottom: 20px; }
+        select, button, input { padding: 8px 12px; margin: 5px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+        button { cursor: pointer; background: #333; color: white; border: none; }
+        button:hover { background: #555; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        #viz-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin-top: 20px; }
+        .layer-container { display: flex; flex-direction: column; align-items: center; }
+        .layer-label { margin-bottom: 5px; font-weight: bold; color: #666; }
+
+        .grid {
+            display: grid;
+            gap: 4px;
+            background: #ccc;
+            padding: 4px;
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .node {
+            width: 40px; height: 40px;
+            background: var(--node-idle);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; color: #555;
+            transition: background 0.3s ease;
+            border-radius: 2px;
+            font-weight: bold;
+        }
+
+        .node.root { background: var(--node-root) !important; color: white; }
+        .node.quad-root { border: 3px solid #FF5722; }
+        .node.completed { background: var(--node-completed); color: white; }
+        .node.routing { background: var(--node-routing); color: white; }
+        .node.sending { background: var(--node-sending); color: white; }
+
+        .node.level-0 { background: #E3F2FD; }
+        .node.level-1 { background: #BBDEFB; }
+        .node.level-2 { background: #90CAF9; }
+        .node.level-3 { background: #64B5F6; }
+        .node.level-4 { background: #42A5F5; }
+
+        .stats { margin-top: 20px; font-size: 1.2em; }
+        .description { max-width: 800px; margin: 20px auto; padding: 15px; background: white; border-radius: 8px; text-align: left; }
+
+    </style>
+</head>
+<body>
+
+    <h1>🔄 Recursive / Quadrant-Based Reduce Simulator</h1>
+    <div class="description">
+        <h3>Algorithm Description:</h3>
+        <p><strong>Recursive / Quadrant-Based Reduce:</strong> The grid is recursively split into quadrants (2D) or octants (3D). Each quadrant performs reduction internally, then sends its result to the parent region's root.</p>
+        <p><strong>2D Example (4×4):</strong> Each quadrant reduces internally first. Then quadrant roots at (2,0), (0,2), and (2,2) send their results to (0,0). This happens recursively at each level.</p>
+        <p><strong>3D:</strong> Each octant reduces internally, then all 7 non-root octants send to the root octant: from (+x,0,0), (0,+y,0), (+x,+y,0), (0,0,+z), (+x,0,+z), (0,+y,+z), (+x,+y,+z) → (0,0,0).</p>
+        <ul>
+            <li>🟢 <strong>Green:</strong> Global root (0,0,0)</li>
+            <li>🟧 <strong>Orange Border:</strong> Quadrant/Octant roots</li>
+            <li>🟠 <strong>Orange:</strong> Sending data</li>
+            <li>🔵 <strong>Blue:</strong> Routing in progress</li>
+            <li>⚪ <strong>Gray:</strong> Completed</li>
+            <li>Light Blue shades represent recursion levels</li>
+        </ul>
+    </div>
+
+    <div class="controls">
+        <label>Dimensions:
+            <select id="dimSelect">
+                <option value="2">2D Mesh</option>
+                <option value="3">3D Mesh</option>
+            </select>
+        </label>
+        <label>Size (N): <input type="number" id="sizeInput" value="4" min="2" max="8" style="width: 50px;"></label>
+        <hr>
+        <button onclick="sim.reset()">Reset</button>
+        <button onclick="sim.step()">Step</button>
+        <button onclick="sim.play()" id="playBtn">Play</button>
+        <button onclick="sim.pause()">Pause</button>
+        <label>Speed: <input type="range" id="speedSlider" min="100" max="2000" value="400" step="100"></label>
+    </div>
+
+    <div class="stats">
+        Round: <span id="roundDisplay">0</span> |
+        Current Level: <span id="levelDisplay">0</span> |
+        Status: <span id="statusDisplay">Ready</span>
+
+    </div>
+
+    <div id="viz-container"></div>
+
+<script>
+class RecursiveReduceSimulator {
+    constructor() {
+        this.N = 4;
+        this.is3D = false;
+        this.nodes = [];
+        this.timer = null;
+        this.round = 0;
+        this.running = false;
+        this.rootSum = 1;
+
+        this.tasksByLevel = [];
+        this.activeTasks = [];
+        this.maxLevel = 0;
+        this.currentLevelIndex = 0;
+    }
+
+    idx(x, y, z=0) {
+        if (!this.is3D) z = 0;
+        return z * this.N * this.N + y * this.N + x;
+    }
+
+    coords(i) {
+        const N = this.N;
+        const z = this.is3D ? Math.floor(i / (N * N)) : 0;
+        const rem = i % (N * N);
+        const y = Math.floor(rem / N);
+        const x = rem % N;
+        return {x, y, z};
+    }
+
+    init() {
+        this.is3D = document.getElementById('dimSelect').value === '3';
+        this.N = parseInt(document.getElementById('sizeInput').value);
+
+        const totalNodes = this.is3D ? this.N**3 : this.N**2;
+        this.nodes = new Array(totalNodes).fill(0).map((_, i) => ({
+            id: i,
+            value: 1,
+            completed: false,
+            isRouting: false,
+            isSending: false,
+            isQuadRoot: false,
+            level: -1
+        }));
+
+        this.rootSum = 1;
+        this.round = 0;
+        this.activeTasks = [];
+
+        this.generateTasks();
+
+        this.currentLevelIndex = this.maxLevel;
+
+        this.renderGrid();
+        this.updateStats();
+    }
+
+    generateTasks() {
+
+        this.tasksByLevel = [];
+        this.maxLevel = 0;
+
+        if (this.is3D) {
+            this.generateTasks3D(0, 0, 0, this.N, this.N, this.N, 0);
+        } else {
+            this.generateTasks2D(0, 0, this.N, this.N, 0);
+        }
+    }
+
+    generateTasks2D(startX, startY, width, height, level) {
+        if (width <= 1 && height <= 1) return;
+
+        const midW = Math.floor(width / 2);
+        const midH = Math.floor(height / 2);
+
+        if (midW === 0 && midH === 0) return;
+
+        this.maxLevel = Math.max(this.maxLevel, level);
+
+        if (midW > 0 && midH > 0) {
+
+            this.generateTasks2D(startX, startY, midW, midH, level + 1);
+
+            this.generateTasks2D(startX + midW, startY, width - midW, midH, level + 1);
+
+            this.generateTasks2D(startX, startY + midH, midW, height - midH, level + 1);
+
+            this.generateTasks2D(startX + midW, startY + midH, width - midW, height - midH, level + 1);
+        } else if (midW > 0) {
+
+            this.generateTasks2D(startX, startY, midW, height, level + 1);
+            this.generateTasks2D(startX + midW, startY, width - midW, height, level + 1);
+        } else if (midH > 0) {
+
+            this.generateTasks2D(startX, startY, width, midH, level + 1);
+            this.generateTasks2D(startX, startY + midH, width, height - midH, level + 1);
+        }
+
+        if (!this.tasksByLevel[level]) {
+            this.tasksByLevel[level] = [];
+        }
+
+        const rootX = startX;
+        const rootY = startY;
+
+        if (midW > 0 && width > midW) {
+            this.tasksByLevel[level].push({
+                type: 'reduce',
+                level: level,
+                from: {x: startX + midW, y: startY, z: 0},
+                to: {x: rootX, y: rootY, z: 0}
+            });
+        }
+
+        if (midH > 0 && height > midH) {
+            this.tasksByLevel[level].push({
+                type: 'reduce',
+                level: level,
+                from: {x: startX, y: startY + midH, z: 0},
+                to: {x: rootX, y: rootY, z: 0}
+            });
+        }
+
+        if (midW > 0 && midH > 0 && width > midW && height > midH) {
+            this.tasksByLevel[level].push({
+                type: 'reduce',
+                level: level,
+                from: {x: startX + midW, y: startY + midH, z: 0},
+                to: {x: rootX, y: rootY, z: 0}
+            });
+        }
+    }
+
+    generateTasks3D(startX, startY, startZ, width, height, depth, level) {
+        if (width <= 1 && height <= 1 && depth <= 1) return;
+
+        const midW = Math.floor(width / 2);
+        const midH = Math.floor(height / 2);
+        const midD = Math.floor(depth / 2);
+
+        if (midW === 0 && midH === 0 && midD === 0) return;
+
+        this.maxLevel = Math.max(this.maxLevel, level);
+
+        const octants = [
+            [startX, startY, startZ, midW || 1, midH || 1, midD || 1],
+            [startX + (midW || 0), startY, startZ, width - (midW || 0), midH || 1, midD || 1],
+            [startX, startY + (midH || 0), startZ, midW || 1, height - (midH || 0), midD || 1],
+            [startX + (midW || 0), startY + (midH || 0), startZ, width - (midW || 0), height - (midH || 0), midD || 1],
+            [startX, startY, startZ + (midD || 0), midW || 1, midH || 1, depth - (midD || 0)],
+            [startX + (midW || 0), startY, startZ + (midD || 0), width - (midW || 0), midH || 1, depth - (midD || 0)],
+            [startX, startY + (midH || 0), startZ + (midD || 0), midW || 1, height - (midH || 0), depth - (midD || 0)],
+            [startX + (midW || 0), startY + (midH || 0), startZ + (midD || 0), width - (midW || 0), height - (midH || 0), depth - (midD || 0)]
+        ];
+
+        for (const oct of octants) {
+            if (oct[3] > 0 && oct[4] > 0 && oct[5] > 0) {
+                this.generateTasks3D(oct[0], oct[1], oct[2], oct[3], oct[4], oct[5], level + 1);
+            }
+        }
+
+        if (!this.tasksByLevel[level]) {
+            this.tasksByLevel[level] = [];
+        }
+
+        const rootX = startX;
+        const rootY = startY;
+        const rootZ = startZ;
+
+        for (let i = 1; i < octants.length; i++) {
+            const oct = octants[i];
+            if (oct[3] > 0 && oct[4] > 0 && oct[5] > 0) {
+                this.tasksByLevel[level].push({
+                    type: 'reduce',
+                    level: level,
+                    from: {x: oct[0], y: oct[1], z: oct[2]},
+                    to: {x: rootX, y: rootY, z: rootZ}
+                });
+            }
+        }
+    }
+
+    computePath(sx, sy, sz, dx, dy, dz) {
+        const path = [];
+        let x = sx, y = sy, z = sz;
+
+        path.push({x, y, z});
+
+        while (x !== dx) {
+            x += (dx > x) ? 1 : -1;
+            path.push({x, y, z});
+        }
+
+        while (y !== dy) {
+            y += (dy > y) ? 1 : -1;
+            path.push({x, y, z});
+        }
+
+        if (this.is3D) {
+            while (z !== dz) {
+                z += (dz > z) ? 1 : -1;
+                path.push({x, y, z});
+            }
+        }
+
+        return path;
+    }
+
+    step() {
+        this.round++;
+
+        if (this.activeTasks.length === 0 && this.currentLevelIndex >= 0) {
+
+            const levelTasks = this.tasksByLevel[this.currentLevelIndex];
+
+            if (levelTasks && levelTasks.length > 0) {
+
+                for (const task of levelTasks) {
+                    const path = this.computePath(
+                        task.from.x, task.from.y, task.from.z,
+                        task.to.x, task.to.y, task.to.z
+                    );
+
+                    this.activeTasks.push({
+                        task: task,
+                        path: path,
+                        pathIndex: 0
+                    });
+
+                    const fromIdx = this.idx(task.from.x, task.from.y, task.from.z);
+                    const toIdx = this.idx(task.to.x, task.to.y, task.to.z);
+                    this.nodes[fromIdx].isQuadRoot = true;
+                    this.nodes[toIdx].isQuadRoot = true;
+                    this.nodes[fromIdx].level = task.level;
+                    this.nodes[toIdx].level = task.level;
+                }
+
+                this.nodes.forEach(n => {
+                    n.isRouting = false;
+                    n.isSending = false;
+                });
+            } else {
+
+                this.currentLevelIndex--;
+            }
+        }
+
+        if (this.activeTasks.length > 0) {
+            const completedTasks = [];
+
+            for (let i = 0; i < this.activeTasks.length; i++) {
+                const activeTask = this.activeTasks[i];
+                const task = activeTask.task;
+                const path = activeTask.path;
+                const pathIndex = activeTask.pathIndex;
+
+                if (pathIndex < path.length) {
+                    const pos = path[pathIndex];
+                    const idx = this.idx(pos.x, pos.y, pos.z);
+
+                    this.nodes[idx].level = task.level;
+
+                    if (pathIndex === 0) {
+
+                        this.nodes[idx].isSending = true;
+                    } else if (pathIndex === path.length - 1) {
+
+                        const toIdx = this.idx(task.to.x, task.to.y, task.to.z);
+                        const fromIdx = this.idx(task.from.x, task.from.y, task.from.z);
+                        this.nodes[toIdx].value += this.nodes[fromIdx].value;
+
+                        if (task.to.x === 0 && task.to.y === 0 && task.to.z === 0) {
+                            this.rootSum = this.nodes[toIdx].value;
+                        }
+
+                        this.nodes[fromIdx].completed = true;
+                        this.nodes[fromIdx].isSending = false;
+
+                        path.forEach(p => {
+                            const pIdx = this.idx(p.x, p.y, p.z);
+                            this.nodes[pIdx].isRouting = false;
+                        });
+
+                        completedTasks.push(i);
+                    } else {
+
+                        this.nodes[idx].isRouting = true;
+                    }
+
+                    activeTask.pathIndex++;
+                }
+            }
+
+            for (let i = completedTasks.length - 1; i >= 0; i--) {
+                this.activeTasks.splice(completedTasks[i], 1);
+            }
+
+            if (this.activeTasks.length === 0) {
+                this.currentLevelIndex--;
+            }
+        }
+
+        this.drawState();
+        this.updateStats();
+    }
+
+    renderGrid() {
+        const container = document.getElementById('viz-container');
+        container.innerHTML = '';
+
+        const layers = this.is3D ? this.N : 1;
+
+        for (let z = 0; z < layers; z++) {
+            const layerDiv = document.createElement('div');
+            layerDiv.className = 'layer-container';
+            if (this.is3D) {
+                layerDiv.innerHTML = `<div class="layer-label">Z-Layer ${z}</div>`;
+            }
+
+            const grid = document.createElement('div');
+            grid.className = 'grid';
+            grid.style.gridTemplateColumns = `repeat(${this.N}, 40px)`;
+
+            for (let y = 0; y < this.N; y++) {
+                for (let x = 0; x < this.N; x++) {
+                    const i = this.idx(x, y, z);
+                    const cell = document.createElement('div');
+                    cell.className = 'node';
+                    cell.id = `node-${i}`;
+                    cell.innerText = `${x},${y}${this.is3D ? ','+z : ''}`;
+
+                    if (i === 0) cell.classList.add('root');
+
+                    grid.appendChild(cell);
+                }
+            }
+            layerDiv.appendChild(grid);
+            container.appendChild(layerDiv);
+        }
+        this.drawState();
+    }
+
+    drawState() {
+        this.nodes.forEach((n, i) => {
+            const el = document.getElementById(`node-${i}`);
+            if (!el) return;
+
+            el.classList.remove('routing', 'completed', 'sending', 'quad-root', 'level-0', 'level-1', 'level-2', 'level-3', 'level-4');
+
+            if (n.level >= 0 && n.level <= 4) {
+                el.classList.add(`level-${n.level}`);
+            }
+
+            if (n.isQuadRoot) {
+                el.classList.add('quad-root');
+            }
+
+            if (n.isSending) {
+                el.classList.add('sending');
+            } else if (n.isRouting) {
+                el.classList.add('routing');
+            } else if (n.completed) {
+                el.classList.add('completed');
+            }
+        });
+    }
+
+    updateStats() {
+        document.getElementById('roundDisplay').innerText = this.round;
+        document.getElementById('levelDisplay').innerText = this.currentLevelIndex >= 0 ? this.currentLevelIndex : 'Done';
+
+        let status = "Running";
+
+        if (this.currentLevelIndex < 0 && this.activeTasks.length === 0) {
+            status = `✓ Completed - Final Sum: ${this.rootSum}`;
+            this.pause();
+        }
+
+        document.getElementById('statusDisplay').innerText = status;
+    }
+
+    play() {
+        if(this.running) return;
+        this.running = true;
+        const speed = parseInt(document.getElementById('speedSlider').value);
+        this.timer = setInterval(() => this.step(), speed);
+    }
+
+    pause() {
+        this.running = false;
+        clearInterval(this.timer);
+    }
+
+    reset() {
+        this.pause();
+        this.init();
+    }
+}
+
+const sim = new RecursiveReduceSimulator();
+window.onload = () => sim.init();
+
+document.getElementById('dimSelect').onchange = () => sim.reset();
+document.getElementById('sizeInput').onchange = () => sim.reset();
+document.getElementById('speedSlider').oninput = function() {
+    if (sim.running) {
+        sim.pause();
+        sim.play();
+    }
+};
+</script>
+</body>
+</html>

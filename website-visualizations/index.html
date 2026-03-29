@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed Systems Algorithm Visualizations</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 3.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .subtitle {
+            color: rgba(255, 255, 255, 0.9);
+            text-align: center;
+            margin-bottom: 50px;
+            font-size: 1.3em;
+        }
+
+        .description {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            margin-bottom: 50px;
+        }
+
+        .description h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .description p {
+            line-height: 1.8;
+            color: #555;
+            margin-bottom: 15px;
+        }
+
+        .description ul {
+            margin-left: 30px;
+            color: #555;
+            line-height: 1.8;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 40px;
+            margin-bottom: 40px;
+        }
+
+        .main-card {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .main-card:hover {
+            transform: translateY(-15px);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+        }
+
+        .main-card-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .main-card h3 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 2em;
+            text-align: center;
+        }
+
+        .main-card p {
+            color: #666;
+            line-height: 1.8;
+            text-align: center;
+            font-size: 1.1em;
+        }
+
+        .main-card .operations {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f8f8;
+            border-radius: 8px;
+            font-size: 0.95em;
+        }
+
+        .main-card .operations strong {
+            color: #667eea;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 50px;
+            color: white;
+            font-size: 0.9em;
+        }
+
+        .footer a {
+            color: white;
+            text-decoration: underline;
+        }
+
+        .algorithms-list {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .algo-tag {
+            background: #667eea;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>📡 Distributed Systems Visualizations</h1>
+        <p class="subtitle">Interactive visualizations of collective communication algorithms on mesh networks</p>
+
+        <div class="description">
+            <h2>About This Project</h2>
+            <p>
+                This project provides interactive visualizations of fundamental collective communication operations
+                in distributed systems, specifically designed for <strong>2D and 3D mesh network topologies</strong>.
+            </p>
+            <p>
+                Collective operations are essential building blocks in parallel and distributed computing, used in
+                applications ranging from scientific simulations to machine learning. Understanding how data flows
+                through a mesh network helps in optimizing performance and minimizing communication overhead.
+            </p>
+            <p>
+                Each visualization demonstrates different algorithmic approaches with varying time complexities,
+                allowing you to compare their behavior step-by-step.
+            </p>
+        </div>
+
+        <div class="main-grid">
+            <a href="Broadcast/index.html" class="main-card">
+                <div class="main-card-icon">📤</div>
+                <h3>Broadcast (Bcast)</h3>
+                <p>
+                    One process (the root) sends the same message to all other processes in the network.
+                    The message propagates from a single source to all N² (2D) or N³ (3D) nodes.
+                </p>
+                <div class="operations">
+                    <strong>Use Cases:</strong> Configuration distribution, model synchronization, parameter updates
+                    <div class="algorithms-list">
+                        <span class="algo-tag">Brute Force</span>
+                        <span class="algo-tag">BFS-Based</span>
+                        <span class="algo-tag">Row-Column Pipeline</span>
+                        <span class="algo-tag">Recursive Quadrant</span>
+                        <span class="algo-tag">Hierarchical Block</span>
+                    </div>
+                </div>
+            </a>
+
+            <a href="Reduce/index.html" class="main-card">
+                <div class="main-card-icon">📥</div>
+                <h3>Reduce</h3>
+                <p>
+                    All processes send their local data to a single root process, which combines (reduces)
+                    all values into a single result. This is the reverse operation of broadcast.
+                </p>
+                <div class="operations">
+                    <strong>Use Cases:</strong> Sum aggregation, gradient accumulation, global statistics computation
+                    <div class="algorithms-list">
+                        <span class="algo-tag">Brute Force</span>
+                        <span class="algo-tag">Inclusion-Exclusion</span>
+                        <span class="algo-tag">Row-Column Pipeline</span>
+                        <span class="algo-tag">Recursive Quadrant</span>
+                        <span class="algo-tag">Hierarchical Block</span>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <div class="description">
+            <h2>Features</h2>
+            <ul>
+                <li><strong>Interactive Controls:</strong> Step through algorithms one round at a time or play
+                    continuously</li>
+                <li><strong>2D & 3D Support:</strong> Switch between 2D mesh grids and 3D mesh cubes</li>
+                <li><strong>Configurable Grid Size:</strong> Adjust N to see how algorithms scale</li>
+                <li><strong>Visual Feedback:</strong> Color-coded nodes show message flow, routing paths, and completion
+                    states</li>
+                <li><strong>Performance Metrics:</strong> Track round count and algorithm progress in real-time</li>
+                <li><strong>Multiple Algorithms:</strong> Compare 5 different approaches for each operation</li>
+            </ul>
+        </div>
+
+        <div class="footer">
+            <p>
+                Distributed Systems | IIIT Hyderabad<br>
+                <a href="https://github.com/kushkushal439/DS-Course-project">View on GitHub</a>
+            </p>
+        </div>
+    </div>
+</body>
+
+</html>

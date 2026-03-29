@@ -1,0 +1,13 @@
+.vscode/
+.DS_Store
+brute
+bfs
+Row_pipeline
+sqrt
+recursive
+naive_row_pipeline
+chunked_row_pipeline
+chunked_serialized
+naive_unserialized
+__pycache__/
+.venv/

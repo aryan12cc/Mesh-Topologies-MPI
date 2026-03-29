@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MPI Broadcast Algorithms - Interactive Visualizer</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --card-bg: #fff;
+            --primary-color: #2196F3;
+            --text-color: #333;
+            --shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            color: var(--primary-color);
+        }
+
+        .subtitle {
+            font-size: 1.2em;
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        .intro {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+            margin-bottom: 40px;
+            text-align: left;
+        }
+
+        .intro h2 {
+            color: var(--primary-color);
+            margin-bottom: 15px;
+        }
+
+        .intro p {
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+
+        .algorithms-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+
+        .algorithm-card {
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .algorithm-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .algorithm-card h3 {
+            color: var(--primary-color);
+            margin-bottom: 15px;
+            font-size: 1.4em;
+        }
+
+        .algorithm-card p {
+            color: #666;
+            line-height: 1.5;
+            margin-bottom: 15px;
+        }
+
+        .algorithm-card .features {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .algorithm-card .features li {
+            padding: 5px 0;
+            color: #888;
+            font-size: 0.9em;
+        }
+
+        .algorithm-card .features li::before {
+            content: "✓ ";
+            color: #4CAF50;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+
+        .icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px 0;
+            color: #888;
+            border-top: 1px solid #ddd;
+            margin-top: 50px;
+        }
+
+        .comparison-note {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 MPI Broadcast Algorithms</h1>
+            <p class="subtitle">Interactive Visualizer for 2D & 3D Mesh Topologies</p>
+        </header>
+
+        <div class="intro">
+            <h2>About This Project</h2>
+            <p>This interactive visualizer demonstrates various MPI collective communication algorithms for broadcast
+                operations on 2D and 3D mesh topologies. Each algorithm implements a different strategy for efficiently
+                distributing data from a root process to all other processes in the network.</p>
+
+            <div class="comparison-note">
+                <strong>📊 Key Concepts:</strong> These algorithms differ in terms of message complexity, latency, and
+                implementation strategy. Some prioritize minimizing the number of hops, while others focus on exploiting
+                parallelism through pipelining or hierarchical structures.
+            </div>
+        </div>
+
+        <h2 style="text-align: center; margin-bottom: 30px; color: var(--primary-color);">Choose an Algorithm to
+            Visualize</h2>
+
+        <div class="algorithms-grid">
+            <a href="brute.html" class="algorithm-card">
+                <span class="icon">🔴</span>
+                <h3>Brute Force</h3>
+                <p>Sequential routing from root (0,0) to each node individually using dimension-order routing.</p>
+                <ul class="features">
+                    <li>Simple baseline implementation</li>
+                    <li>High message complexity: O(N³)</li>
+                    <li>Sequential execution</li>
+                    <li>2D & 3D support</li>
+                </ul>
+            </a>
+
+            <a href="row_pipeline.html" class="algorithm-card">
+                <span class="icon">📡</span>
+                <h3>Row-Column Pipeline</h3>
+                <p>Dimension-order pipeline broadcast. 2D: row then column. 3D: X, Y, then Z axis.</p>
+                <ul class="features">
+                    <li>Pipelined execution</li>
+                    <li>Message complexity: O(N)</li>
+                    <li>Two phases (2D) / Three phases (3D)</li>
+                    <li>Exploits parallelism</li>
+                </ul>
+            </a>
+
+            <a href="bfs.html" class="algorithm-card">
+                <span class="icon">🌊</span>
+                <h3>BFS / Spanning Tree</h3>
+                <p>Breadth-first search approach where each node forwards to unvisited neighbors.</p>
+                <ul class="features">
+                    <li>Natural spanning tree</li>
+                    <li>Low latency: O(2N)</li>
+                    <li>Message redundancy handled</li>
+                    <li>Fast wavefront propagation</li>
+                </ul>
+            </a>
+
+            <a href="recursive.html" class="algorithm-card">
+                <span class="icon">🔄</span>
+                <h3>Recursive Quadrant</h3>
+                <p>Recursively divides grid into quadrants/octants. Root sends to sub-roots which recurse.</p>
+                <ul class="features">
+                    <li>Divide-and-conquer strategy</li>
+                    <li>Logarithmic depth: O(log N)</li>
+                    <li>Balanced tree structure</li>
+                    <li>Efficient for large grids</li>
+                </ul>
+            </a>
+
+            <a href="sqrt.html" class="algorithm-card">
+                <span class="icon">🔲</span>
+                <h3>Hierarchical (Block-Based)</h3>
+                <p>Divides grid into √N blocks. Phase 1: broadcast to block leaders. Phase 2: intra-block broadcast.</p>
+                <ul class="features">
+                    <li>Two-phase approach</li>
+                    <li>Block-level organization</li>
+                    <li>Combines inter & intra-block</li>
+                    <li>Scalable design</li>
+                </ul>
+            </a>
+        </div>
+
+        <footer>
+            <p><strong>Distributed Systems</strong></p>
+            <p>Interactive visualization of MPI collective communication algorithms on mesh topologies</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">Click any algorithm card above to launch the interactive
+                simulator</p>
+        </footer>
+    </div>
+</body>
+
+</html>

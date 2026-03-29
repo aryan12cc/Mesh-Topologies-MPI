@@ -1,0 +1,50 @@
+================================================================================
+CHUNK SIZE VARIATION ANALYSIS
+================================================================================
+
+Fixed Parameters:
+  Number of Processors: 64
+  Message Size: 4.00 MB (4194304 bytes)
+  Grid Configuration: 8x8 (2D) or 4x4x4 (3D)
+
+================================================================================
+
+2D Results:
+--------------------------------------------------------------------------------
+
+Naive Broadcast Time: 0.045397 seconds
+
+Chunk Size Analysis:
+Chunk Size   Avg Time (s)    Speedup    Performance
+--------------------------------------------------------------------------------
+1KB          0.050850        0.89x      Poor
+4KB          0.036450        1.25x      Poor
+16KB         0.024527        1.85x      Fair
+64KB         0.022842        1.99x      Fair
+256KB        0.018860        2.41x      Good ★
+1MB          0.021564        2.11x      Good
+2MB          0.032157        1.41x      Poor
+4MB          0.046083        0.99x      Poor
+
+Optimal Configuration: 256KB chunks (2.41x speedup)
+
+3D Results:
+--------------------------------------------------------------------------------
+
+Naive Broadcast Time: 0.037721 seconds
+
+Chunk Size Analysis:
+Chunk Size   Avg Time (s)    Speedup    Performance
+--------------------------------------------------------------------------------
+1KB          0.039897        0.95x      Poor
+4KB          0.028527        1.32x      Poor
+16KB         0.020197        1.87x      Fair
+64KB         0.016549        2.28x      Good ★
+256KB        0.020031        1.88x      Fair
+1MB          0.022157        1.70x      Fair
+2MB          0.027083        1.39x      Poor
+4MB          0.038564        0.98x      Poor
+
+Optimal Configuration: 64KB chunks (2.28x speedup)
+
+================================================================================

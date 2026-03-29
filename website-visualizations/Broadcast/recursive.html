@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recursive Quadrant Broadcast Simulator</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --grid-bg: #fff;
+            --node-idle: #e0e0e0;
+            --node-root: #f44336;
+            --text-color: #333;
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); color: var(--text-color); padding: 20px; text-align: center; }
+
+        .controls { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: inline-block; margin-bottom: 20px; }
+        select, button, input { padding: 8px 12px; margin: 5px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+        button { cursor: pointer; background: #333; color: white; border: none; }
+        button:hover { background: #555; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        #viz-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin-top: 20px; }
+        .layer-container { display: flex; flex-direction: column; align-items: center; }
+        .layer-label { margin-bottom: 5px; font-weight: bold; color: #666; }
+
+        .grid {
+            display: grid;
+            gap: 4px;
+            background: #ccc;
+            padding: 4px;
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .node {
+            width: 40px; height: 40px;
+            background: var(--node-idle);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; color: #555;
+            transition: background 0.3s ease;
+            border-radius: 2px;
+            font-weight: bold;
+        }
+
+        .node.root { background: var(--node-root) !important; color: white; }
+        .node.quad-root { border: 3px solid #FF5722; }
+        .node.completed { background: #4CAF50; color: white; }
+        .node.routing { background: #2196F3; color: white; }
+
+        .node.level-0 { background: #E3F2FD; }
+        .node.level-1 { background: #BBDEFB; }
+        .node.level-2 { background: #90CAF9; }
+        .node.level-3 { background: #64B5F6; }
+        .node.level-4 { background: #42A5F5; }
+
+        .stats { margin-top: 20px; font-size: 1.2em; }
+        .description { max-width: 800px; margin: 20px auto; padding: 15px; background: white; border-radius: 8px; text-align: left; }
+    </style>
+</head>
+<body>
+
+    <h1>🔄 Recursive / Quadrant-Based Broadcast Simulator</h1>
+    <div class="description">
+        <h3>Algorithm Description:</h3>
+        <p><strong>Recursive / Quadrant-Based Broadcast:</strong> The grid is recursively split into quadrants (2D) or octants (3D). Each node that receives the message becomes responsible for broadcasting within its assigned region.</p>
+        <p><strong>2D Example (4×4):</strong> (0,0) sends to (2,0), then (0,2), then (2,2). Then all 4 roots work in parallel: (0,0) sends to (1,0), (0,1), (1,1) within its quadrant, while (2,0), (0,2), and (2,2) similarly subdivide their quadrants.</p>
+        <p><strong>3D:</strong> Each octant root sends to 7 targets sequentially: (+x,0,0), (0,+y,0), (+x,+y,0), (0,0,+z), (+x,0,+z), (0,+y,+z), (+x,+y,+z), then recursively subdivides.</p>
+        <ul>
+            <li>🔴 <strong>Red:</strong> Global root (0,0,0)</li>
+            <li>🟧 <strong>Orange Border:</strong> Quadrant/Octant roots</li>
+            <li>🔵 <strong>Blue:</strong> Routing in progress</li>
+            <li>🟢 <strong>Green:</strong> Completed</li>
+            <li>Light Blue shades represent recursion levels</li>
+        </ul>
+    </div>
+
+    <div class="controls">
+        <label>Dimensions:
+            <select id="dimSelect">
+                <option value="2">2D Mesh</option>
+                <option value="3">3D Mesh</option>
+            </select>
+        </label>
+        <label>Size (N): <input type="number" id="sizeInput" value="4" min="2" max="8" style="width: 50px;"></label>
+        <hr>
+        <button onclick="sim.reset()">Reset</button>
+        <button onclick="sim.step()">Step</button>
+        <button onclick="sim.play()" id="playBtn">Play</button>
+        <button onclick="sim.pause()">Pause</button>
+        <label>Speed: <input type="range" id="speedSlider" min="100" max="2000" value="400" step="100"></label>
+    </div>
+
+    <div class="stats">
+        Round: <span id="roundDisplay">0</span> |
+        Current Level: <span id="levelDisplay">0</span> |
+        Status: <span id="statusDisplay">Ready</span>
+    </div>
+
+    <div id="viz-container"></div>
+
+<script>
+class RecursiveSimulator {
+    constructor() {
+        this.N = 4;
+        this.is3D = false;
+        this.nodes = [];
+        this.timer = null;
+        this.round = 0;
+        this.running = false;
+        this.activeRoutings = [];
+        this.currentLevel = 0;
+        this.routingInProgress = false;
+    }
+
+    idx(x, y, z=0) {
+        if (!this.is3D) z = 0;
+        return z * this.N * this.N + y * this.N + x;
+    }
+
+    coords(i) {
+        const N = this.N;
+        const z = this.is3D ? Math.floor(i / (N * N)) : 0;
+        const rem = i % (N * N);
+        const y = Math.floor(rem / N);
+        const x = rem % N;
+        return {x, y, z};
+    }
+
+    init() {
+        this.is3D = document.getElementById('dimSelect').value === '3';
+        this.N = parseInt(document.getElementById('sizeInput').value);
+
+        const totalNodes = this.is3D ? this.N**3 : this.N**2;
+        this.nodes = new Array(totalNodes).fill(0).map((_, i) => ({
+            id: i,
+            hasMsg: false,
+            completed: false,
+            isQuadRoot: false,
+            level: -1,
+            routing: false,
+            hasSent: false,
+            region: null
+        }));
+
+        this.nodes[0].hasMsg = true;
+        this.nodes[0].completed = true;
+        this.nodes[0].level = 0;
+        this.nodes[0].region = {
+            startX: 0, startY: 0, startZ: 0,
+            sizeX: this.N, sizeY: this.N, sizeZ: this.is3D ? this.N : 1
+        };
+
+        this.round = 0;
+        this.currentLevel = 0;
+        this.activeRoutings = [];
+        this.routingInProgress = false;
+
+        this.renderGrid();
+        this.updateStats();
+    }
+
+    step() {
+        this.round++;
+
+        if (this.routingInProgress) {
+
+            return;
+        }
+
+        const sendersThisRound = [];
+
+        for (let i = 0; i < this.nodes.length; i++) {
+            if (!this.nodes[i].completed) continue;
+
+            const {x, y, z} = this.coords(i);
+
+            const region = this.nodes[i].region;
+
+            if (!region) continue;
+
+            if (x !== region.startX || y !== region.startY || z !== region.startZ) {
+                continue;
+            }
+
+            const targets = this.is3D
+                ? this.getOctantTargets(x, y, z, region, this.nodes[i].level)
+                : this.getQuadrantTargets(x, y, z, region, this.nodes[i].level);
+
+            if (targets.length > 0) {
+                sendersThisRound.push({
+                    srcX: x, srcY: y, srcZ: z,
+                    srcIdx: i,
+                    targets: targets,
+                    level: this.nodes[i].level
+                });
+            } else {
+
+                this.nodes[i].hasSent = true;
+            }
+
+            this.nodes[i].region.sizeX = region.sizeX / 2;
+            this.nodes[i].region.sizeY = region.sizeY / 2;
+            if (this.is3D) {
+                this.nodes[i].region.sizeZ = region.sizeZ / 2;
+            }
+        }
+
+        if (sendersThisRound.length === 0) {
+
+            this.updateStats();
+            return;
+        }
+
+        sendersThisRound.forEach(sender => {
+            this.nodes[sender.srcIdx].hasSent = true;
+        });
+
+        this.activeRoutings = sendersThisRound.map(sender => ({
+            srcX: sender.srcX,
+            srcY: sender.srcY,
+            srcZ: sender.srcZ,
+            targets: sender.targets,
+            currentTargetIndex: 0,
+            level: sender.level,
+            path: null,
+            pathIndex: 0
+        }));
+
+        this.routingInProgress = true;
+        this.animateParallelRoutings();
+    }
+
+    animateParallelRoutings() {
+
+        const allComplete = this.activeRoutings.every(r => r.currentTargetIndex >= r.targets.length);
+
+        if (allComplete) {
+
+            this.activeRoutings = [];
+            this.currentLevel++;
+            this.routingInProgress = false;
+            this.drawState();
+            this.updateStats();
+            return;
+        }
+
+        let anyProgress = false;
+
+        this.activeRoutings.forEach(routing => {
+            if (routing.currentTargetIndex >= routing.targets.length) {
+                return;
+            }
+
+            if (!routing.path) {
+                const target = routing.targets[routing.currentTargetIndex];
+                routing.path = this.computePath(routing.srcX, routing.srcY, routing.srcZ,
+                                               target.x, target.y, target.z);
+                routing.pathIndex = 0;
+            }
+
+            if (routing.pathIndex < routing.path.length) {
+                const pos = routing.path[routing.pathIndex];
+                const idx = this.idx(pos.x, pos.y, pos.z);
+                this.nodes[idx].routing = true;
+                routing.pathIndex++;
+                anyProgress = true;
+            } else {
+
+                const target = routing.targets[routing.currentTargetIndex];
+                const dstIdx = this.idx(target.x, target.y, target.z);
+
+                this.nodes[dstIdx].hasMsg = true;
+                this.nodes[dstIdx].completed = true;
+                this.nodes[dstIdx].isQuadRoot = true;
+                this.nodes[dstIdx].level = routing.level + 1;
+                this.nodes[dstIdx].hasSent = false;
+                this.nodes[dstIdx].region = target.region;
+
+                routing.currentTargetIndex++;
+                routing.path = null;
+                routing.pathIndex = 0;
+
+                this.nodes.forEach(n => n.routing = false);
+            }
+        });
+
+        this.drawState();
+
+        if (anyProgress) {
+            setTimeout(() => this.animateParallelRoutings(), 200);
+        } else {
+            setTimeout(() => this.animateParallelRoutings(), 200);
+        }
+    }
+
+    getQuadrantTargets(srcX, srcY, srcZ, region, level) {
+        const targets = [];
+        const midX = Math.floor(region.sizeX / 2);
+        const midY = Math.floor(region.sizeY / 2);
+
+        if (midX === 0 || midY === 0) return targets;
+
+        if (region.startX + midX < region.startX + region.sizeX) {
+            targets.push({
+                x: region.startX + midX,
+                y: region.startY,
+                z: 0,
+                region: {
+                    startX: region.startX + midX,
+                    startY: region.startY,
+                    startZ: 0,
+                    sizeX: region.sizeX - midX,
+                    sizeY: midY,
+                    sizeZ: 1
+                }
+            });
+        }
+
+        if (region.startY + midY < region.startY + region.sizeY) {
+            targets.push({
+                x: region.startX,
+                y: region.startY + midY,
+                z: 0,
+                region: {
+                    startX: region.startX,
+                    startY: region.startY + midY,
+                    startZ: 0,
+                    sizeX: midX,
+                    sizeY: region.sizeY - midY,
+                    sizeZ: 1
+                }
+            });
+        }
+
+        if (region.startX + midX < region.startX + region.sizeX &&
+            region.startY + midY < region.startY + region.sizeY) {
+            targets.push({
+                x: region.startX + midX,
+                y: region.startY + midY,
+                z: 0,
+                region: {
+                    startX: region.startX + midX,
+                    startY: region.startY + midY,
+                    startZ: 0,
+                    sizeX: region.sizeX - midX,
+                    sizeY: region.sizeY - midY,
+                    sizeZ: 1
+                }
+            });
+        }
+
+        return targets;
+    }
+
+    getOctantTargets(srcX, srcY, srcZ, region, level) {
+        const targets = [];
+        const midX = Math.floor(region.sizeX / 2);
+        const midY = Math.floor(region.sizeY / 2);
+        const midZ = Math.floor(region.sizeZ / 2);
+
+        if (midX === 0 || midY === 0 || midZ === 0) return targets;
+
+        const octantOrder = [
+            [1, 0, 0],
+            [0, 1, 0],
+            [1, 1, 0],
+            [0, 0, 1],
+            [1, 0, 1],
+            [0, 1, 1],
+            [1, 1, 1]
+        ];
+
+        octantOrder.forEach(([ox, oy, oz]) => {
+            const tx = region.startX + (ox * midX);
+            const ty = region.startY + (oy * midY);
+            const tz = region.startZ + (oz * midZ);
+
+            if (tx < region.startX + region.sizeX &&
+                ty < region.startY + region.sizeY &&
+                tz < region.startZ + region.sizeZ) {
+                targets.push({
+                    x: tx, y: ty, z: tz,
+                    region: {
+                        startX: tx,
+                        startY: ty,
+                        startZ: tz,
+                        sizeX: ox === 0 ? midX : region.sizeX - midX,
+                        sizeY: oy === 0 ? midY : region.sizeY - midY,
+                        sizeZ: oz === 0 ? midZ : region.sizeZ - midZ
+                    }
+                });
+            }
+        });
+
+        return targets;
+    }
+
+    computePath(sx, sy, sz, dx, dy, dz) {
+        const path = [];
+        let x = sx, y = sy, z = sz;
+
+        while (x !== dx) {
+            path.push({x, y, z});
+            x += (dx > x) ? 1 : -1;
+        }
+
+        while (y !== dy) {
+            path.push({x, y, z});
+            y += (dy > y) ? 1 : -1;
+        }
+
+        if (this.is3D) {
+            while (z !== dz) {
+                path.push({x, y, z});
+                z += (dz > z) ? 1 : -1;
+            }
+        }
+
+        path.push({x: dx, y: dy, z: dz});
+        return path;
+    }
+
+    renderGrid() {
+        const container = document.getElementById('viz-container');
+        container.innerHTML = '';
+
+        const layers = this.is3D ? this.N : 1;
+
+        for (let z = 0; z < layers; z++) {
+            const layerDiv = document.createElement('div');
+            layerDiv.className = 'layer-container';
+            if (this.is3D) {
+                layerDiv.innerHTML = `<div class="layer-label">Z-Layer ${z}</div>`;
+            }
+
+            const grid = document.createElement('div');
+            grid.className = 'grid';
+            grid.style.gridTemplateColumns = `repeat(${this.N}, 40px)`;
+
+            for (let y = 0; y < this.N; y++) {
+                for (let x = 0; x < this.N; x++) {
+                    const i = this.idx(x, y, z);
+                    const cell = document.createElement('div');
+                    cell.className = 'node';
+                    cell.id = `node-${i}`;
+                    cell.innerText = `${x},${y}${this.is3D ? ','+z : ''}`;
+
+                    if (i === 0) cell.classList.add('root');
+
+                    grid.appendChild(cell);
+                }
+            }
+            layerDiv.appendChild(grid);
+            container.appendChild(layerDiv);
+        }
+        this.drawState();
+    }
+
+    drawState() {
+        this.nodes.forEach((n, i) => {
+            const el = document.getElementById(`node-${i}`);
+            if (!el) return;
+
+            el.classList.remove('quad-root', 'completed', 'routing', 'level-0', 'level-1', 'level-2', 'level-3', 'level-4');
+
+            if (n.routing) {
+                el.classList.add('routing');
+            } else if (n.completed) {
+                el.classList.add('completed');
+                if (n.isQuadRoot) el.classList.add('quad-root');
+            } else if (n.hasMsg) {
+                el.classList.add(`level-${Math.min(n.level, 4)}`);
+            }
+        });
+    }
+
+    updateStats() {
+        document.getElementById('roundDisplay').innerText = this.round;
+        document.getElementById('levelDisplay').innerText = this.currentLevel;
+
+        let status = "Running";
+        const completed = this.nodes.filter(n => n.completed).length;
+        const total = this.nodes.length;
+
+        if (!this.routingInProgress && completed === total) {
+            status = `✓ Completed (${completed}/${total} nodes)`;
+            this.pause();
+        }
+
+        document.getElementById('statusDisplay').innerText = status;
+    }
+
+    play() {
+        if(this.running) return;
+        this.running = true;
+        const speed = parseInt(document.getElementById('speedSlider').value);
+        this.timer = setInterval(() => this.step(), speed);
+    }
+
+    pause() {
+        this.running = false;
+        clearInterval(this.timer);
+    }
+
+    reset() {
+        this.pause();
+        this.init();
+    }
+}
+
+const sim = new RecursiveSimulator();
+window.onload = () => sim.init();
+
+document.getElementById('dimSelect').onchange = () => sim.reset();
+document.getElementById('sizeInput').onchange = () => sim.reset();
+document.getElementById('speedSlider').oninput = function() {
+    if (sim.running) {
+        sim.pause();
+        sim.play();
+    }
+};
+</script>
+</body>
+</html>

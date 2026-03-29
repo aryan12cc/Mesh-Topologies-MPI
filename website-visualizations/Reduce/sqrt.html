@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hierarchical Block-Based Reduce Simulator</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --grid-bg: #fff;
+            --node-idle: #e0e0e0;
+            --node-root: #4CAF50;
+            --block-leader: #FF9800;
+            --node-phase1: #2196F3;
+            --node-phase2: #9C27B0;
+            --text-color: #333;
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); color: var(--text-color); padding: 20px; text-align: center; }
+
+        .controls { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: inline-block; margin-bottom: 20px; }
+        select, button, input { padding: 8px 12px; margin: 5px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+        button { cursor: pointer; background: #333; color: white; border: none; }
+        button:hover { background: #555; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        #viz-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin-top: 20px; }
+        .layer-container { display: flex; flex-direction: column; align-items: center; position: relative; }
+        .layer-label { margin-bottom: 5px; font-weight: bold; color: #666; }
+
+        .grid {
+            display: grid;
+            gap: 4px;
+            background: #ccc;
+            padding: 4px;
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .grid-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .node {
+            width: 40px; height: 40px;
+            background: var(--node-idle);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; color: #555;
+            transition: background 0.3s ease;
+            border-radius: 2px;
+            font-weight: bold;
+            position: relative;
+        }
+
+        .node.block-top { border-top: 2px solid #FF5722; }
+        .node.block-bottom { border-bottom: 2px solid #FF5722; }
+        .node.block-left { border-left: 2px solid #FF5722; }
+        .node.block-right { border-right: 2px solid #FF5722; }
+
+        .node.root { background: var(--node-root) !important; color: white; }
+        .node.block-leader { border: 3px solid var(--block-leader); }
+        .node.phase1 { background: var(--node-phase1); color: white; }
+        .node.phase2 { background: var(--node-phase2); color: white; }
+        .node.completed { background: #9E9E9E; color: white; }
+        .node.routing { background: #64B5F6; color: white; }
+
+        .stats { margin-top: 20px; font-size: 1.2em; }
+        .description { max-width: 800px; margin: 20px auto; padding: 15px; background: white; border-radius: 8px; text-align: left; }
+
+    </style>
+</head>
+<body>
+
+    <h1>🔲 Hierarchical / Block-Based Reduce Simulator</h1>
+    <div class="description">
+        <h3>Algorithm Description:</h3>
+        <p><strong>Hierarchical / Block-Based Reduce:</strong> The N × N (or N × N × N) grid is divided into k blocks (e.g., √N blocks of size √N × √N).</p>
+        <p><strong>Phase 1 (Intra-block):</strong> Each block performs local reduction using pipeline.</p>
+        <p><strong>2D:</strong> Within each block: south→north, then east→west. Each block's leader (top-left corner) accumulates its block's sum.</p>
+        <p><strong>3D:</strong> Within each block: back→front (Z), then south→north (Y), then east→west (X). Block leader at corner (0,0,0) of each block accumulates.</p>
+        <p><strong>Phase 2 (Inter-block):</strong> All block leaders send their accumulated sums to the global root (0,0,0).</p>
+        <ul>
+            <li>🟢 <strong>Green:</strong> Global root (0,0,0)</li>
+            <li>🟧 <strong>Orange Border:</strong> Block leaders</li>
+            <li>🔵 <strong>Blue:</strong> Phase 1 (Intra-block reduction)</li>
+            <li>🟣 <strong>Purple:</strong> Phase 2 (Inter-block reduction)</li>
+            <li>⚪ <strong>Gray:</strong> Completed</li>
+            <li>🟥 <strong>Red Border:</strong> Block boundaries</li>
+        </ul>
+    </div>
+
+    <div class="controls">
+        <label>Dimensions:
+            <select id="dimSelect">
+                <option value="2">2D Mesh</option>
+                <option value="3">3D Mesh</option>
+            </select>
+        </label>
+        <label>Size (N): <input type="number" id="sizeInput" value="4" min="2" max="8" style="width: 50px;"></label>
+        <hr>
+        <button onclick="sim.reset()">Reset</button>
+        <button onclick="sim.step()">Step</button>
+        <button onclick="sim.play()" id="playBtn">Play</button>
+        <button onclick="sim.pause()">Pause</button>
+        <label>Speed: <input type="range" id="speedSlider" min="100" max="2000" value="300" step="100"></label>
+    </div>
+
+    <div class="stats">
+        Round: <span id="roundDisplay">0</span> |
+        Phase: <span id="phaseDisplay">1 (Intra-block)</span> |
+        Status: <span id="statusDisplay">Ready</span>
+
+    </div>
+
+    <div id="viz-container"></div>
+
+<script>
+class HierarchicalReduceSimulator {
+    constructor() {
+        this.N = 4;
+        this.is3D = false;
+        this.nodes = [];
+        this.timer = null;
+        this.round = 0;
+        this.running = false;
+        this.rootSum = 1;
+
+        this.blockSize = 2;
+        this.phase = 1;
+        this.subPhase = 1;
+        this.currentWave = 0;
+        this.blockLeaderTasks = [];
+        this.currentTask = null;
+        this.currentPath = [];
+        this.pathIndex = 0;
+    }
+
+    idx(x, y, z=0) {
+        if (!this.is3D) z = 0;
+        return z * this.N * this.N + y * this.N + x;
+    }
+
+    coords(i) {
+        const N = this.N;
+        const z = this.is3D ? Math.floor(i / (N * N)) : 0;
+        const rem = i % (N * N);
+        const y = Math.floor(rem / N);
+        const x = rem % N;
+        return {x, y, z};
+    }
+
+    init() {
+        this.is3D = document.getElementById('dimSelect').value === '3';
+        this.N = parseInt(document.getElementById('sizeInput').value);
+        this.blockSize = Math.max(2, Math.floor(Math.sqrt(this.N)));
+
+        const totalNodes = this.is3D ? this.N**3 : this.N**2;
+        this.nodes = new Array(totalNodes).fill(0).map((_, i) => ({
+            id: i,
+            value: 1,
+            completed: false,
+            isPhase1: false,
+            isPhase2: false,
+            isRouting: false,
+            isBlockLeader: false
+        }));
+
+        this.rootSum = 1;
+        this.phase = 1;
+        this.subPhase = 1;
+        this.currentWave = 0;
+        this.round = 0;
+
+        this.identifyBlockLeaders();
+        this.renderGrid();
+        this.updateStats();
+    }
+
+    identifyBlockLeaders() {
+        const numBlocks = Math.ceil(this.N / this.blockSize);
+
+        for (let bz = 0; bz < (this.is3D ? numBlocks : 1); bz++) {
+            for (let by = 0; by < numBlocks; by++) {
+                for (let bx = 0; bx < numBlocks; bx++) {
+                    const leaderX = bx * this.blockSize;
+                    const leaderY = by * this.blockSize;
+                    const leaderZ = this.is3D ? bz * this.blockSize : 0;
+
+                    if (leaderX < this.N && leaderY < this.N && (!this.is3D || leaderZ < this.N)) {
+                        const idx = this.idx(leaderX, leaderY, leaderZ);
+                        this.nodes[idx].isBlockLeader = true;
+                    }
+                }
+            }
+        }
+    }
+
+    step() {
+        this.round++;
+
+        if (this.phase === 1) {
+            this.stepPhase1();
+        } else if (this.phase === 2) {
+            this.stepPhase2();
+        }
+
+        this.drawState();
+        this.updateStats();
+    }
+
+    stepPhase1() {
+
+        if (!this.is3D) {
+
+            if (this.subPhase === 1) {
+
+                const sourceOffset = this.blockSize - 1 - this.currentWave;
+
+                if (sourceOffset > 0) {
+                    const numBlocks = Math.ceil(this.N / this.blockSize);
+
+                    for (let by = 0; by < numBlocks; by++) {
+                        for (let bx = 0; bx < numBlocks; bx++) {
+                            const blockStartX = bx * this.blockSize;
+                            const blockStartY = by * this.blockSize;
+
+                            for (let localX = 0; localX < this.blockSize; localX++) {
+                                const x = blockStartX + localX;
+                                const sourceY = blockStartY + sourceOffset;
+                                const targetY = sourceY - 1;
+
+                                if (x >= this.N || sourceY >= this.N || targetY < blockStartY) continue;
+
+                                const srcIdx = this.idx(x, sourceY, 0);
+                                const tgtIdx = this.idx(x, targetY, 0);
+
+                                this.nodes[srcIdx].isPhase1 = true;
+                                this.nodes[tgtIdx].value += this.nodes[srcIdx].value;
+
+                                if (bx === 0 && by === 0 && targetY === 0) {
+                                    this.rootSum += this.nodes[srcIdx].value;
+                                }
+
+                                setTimeout(() => {
+                                    this.nodes[srcIdx].completed = true;
+                                    this.nodes[srcIdx].isPhase1 = false;
+                                }, 150);
+                            }
+                        }
+                    }
+
+                    this.currentWave++;
+
+                    if (sourceOffset === 1) {
+                        setTimeout(() => {
+                            this.subPhase = 2;
+                            this.currentWave = 0;
+                        }, 300);
+                    }
+                }
+            } else if (this.subPhase === 2) {
+
+                const sourceOffset = this.blockSize - 1 - this.currentWave;
+
+                if (sourceOffset > 0) {
+                    const numBlocks = Math.ceil(this.N / this.blockSize);
+
+                    for (let by = 0; by < numBlocks; by++) {
+                        for (let bx = 0; bx < numBlocks; bx++) {
+                            const blockStartX = bx * this.blockSize;
+                            const blockStartY = by * this.blockSize;
+
+                            const y = blockStartY;
+                            if (y >= this.N) continue;
+
+                            const sourceX = blockStartX + sourceOffset;
+                            const targetX = sourceX - 1;
+
+                            if (sourceX >= this.N || targetX < blockStartX) continue;
+
+                            const srcIdx = this.idx(sourceX, y, 0);
+                            const tgtIdx = this.idx(targetX, y, 0);
+
+                            this.nodes[srcIdx].isPhase1 = true;
+                            this.nodes[tgtIdx].value += this.nodes[srcIdx].value;
+
+                            if (bx === 0 && by === 0 && targetX === 0 && y === 0) {
+                                this.rootSum += this.nodes[srcIdx].value;
+                            }
+
+                            setTimeout(() => {
+                                this.nodes[srcIdx].completed = true;
+                                this.nodes[srcIdx].isPhase1 = false;
+                            }, 150);
+                        }
+                    }
+
+                    this.currentWave++;
+
+                    if (sourceOffset === 1) {
+                        setTimeout(() => {
+                            this.phase = 2;
+                            this.generateBlockLeaderTasks();
+                        }, 300);
+                    }
+                }
+            }
+        } else {
+
+            if (this.subPhase === 1) {
+
+                const sourceOffset = this.blockSize - 1 - this.currentWave;
+
+                if (sourceOffset > 0) {
+                    const numBlocks = Math.ceil(this.N / this.blockSize);
+
+                    for (let bz = 0; bz < numBlocks; bz++) {
+                        for (let by = 0; by < numBlocks; by++) {
+                            for (let bx = 0; bx < numBlocks; bx++) {
+                                const blockStartX = bx * this.blockSize;
+                                const blockStartY = by * this.blockSize;
+                                const blockStartZ = bz * this.blockSize;
+
+                                for (let localY = 0; localY < this.blockSize; localY++) {
+                                    for (let localX = 0; localX < this.blockSize; localX++) {
+                                        const x = blockStartX + localX;
+                                        const y = blockStartY + localY;
+                                        const sourceZ = blockStartZ + sourceOffset;
+                                        const targetZ = sourceZ - 1;
+
+                                        if (x >= this.N || y >= this.N || sourceZ >= this.N || targetZ < blockStartZ) continue;
+
+                                        const srcIdx = this.idx(x, y, sourceZ);
+                                        const tgtIdx = this.idx(x, y, targetZ);
+
+                                        this.nodes[srcIdx].isPhase1 = true;
+                                        this.nodes[tgtIdx].value += this.nodes[srcIdx].value;
+
+                                        if (bx === 0 && by === 0 && bz === 0 && targetZ === 0) {
+                                            this.rootSum += this.nodes[srcIdx].value;
+                                        }
+
+                                        setTimeout(() => {
+                                            this.nodes[srcIdx].completed = true;
+                                            this.nodes[srcIdx].isPhase1 = false;
+                                        }, 150);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    this.currentWave++;
+
+                    if (sourceOffset === 1) {
+                        setTimeout(() => {
+                            this.subPhase = 2;
+                            this.currentWave = 0;
+                        }, 300);
+                    }
+                }
+            } else if (this.subPhase === 2) {
+
+                const sourceOffset = this.blockSize - 1 - this.currentWave;
+
+                if (sourceOffset > 0) {
+                    const numBlocks = Math.ceil(this.N / this.blockSize);
+
+                    for (let bz = 0; bz < numBlocks; bz++) {
+                        for (let by = 0; by < numBlocks; by++) {
+                            for (let bx = 0; bx < numBlocks; bx++) {
+                                const blockStartX = bx * this.blockSize;
+                                const blockStartY = by * this.blockSize;
+                                const blockStartZ = bz * this.blockSize;
+
+                                const z = blockStartZ;
+                                if (z >= this.N) continue;
+
+                                for (let localX = 0; localX < this.blockSize; localX++) {
+                                    const x = blockStartX + localX;
+                                    const sourceY = blockStartY + sourceOffset;
+                                    const targetY = sourceY - 1;
+
+                                    if (x >= this.N || sourceY >= this.N || targetY < blockStartY) continue;
+
+                                    const srcIdx = this.idx(x, sourceY, z);
+                                    const tgtIdx = this.idx(x, targetY, z);
+
+                                    this.nodes[srcIdx].isPhase1 = true;
+                                    this.nodes[tgtIdx].value += this.nodes[srcIdx].value;
+
+                                    if (bx === 0 && by === 0 && bz === 0 && targetY === 0 && z === 0) {
+                                        this.rootSum += this.nodes[srcIdx].value;
+                                    }
+
+                                    setTimeout(() => {
+                                        this.nodes[srcIdx].completed = true;
+                                        this.nodes[srcIdx].isPhase1 = false;
+                                    }, 150);
+                                }
+                            }
+                        }
+                    }
+
+                    this.currentWave++;
+
+                    if (sourceOffset === 1) {
+                        setTimeout(() => {
+                            this.subPhase = 3;
+                            this.currentWave = 0;
+                        }, 300);
+                    }
+                }
+            } else if (this.subPhase === 3) {
+
+                const sourceOffset = this.blockSize - 1 - this.currentWave;
+
+                if (sourceOffset > 0) {
+                    const numBlocks = Math.ceil(this.N / this.blockSize);
+
+                    for (let bz = 0; bz < numBlocks; bz++) {
+                        for (let by = 0; by < numBlocks; by++) {
+                            for (let bx = 0; bx < numBlocks; bx++) {
+                                const blockStartX = bx * this.blockSize;
+                                const blockStartY = by * this.blockSize;
+                                const blockStartZ = bz * this.blockSize;
+
+                                const y = blockStartY;
+                                const z = blockStartZ;
+                                if (y >= this.N || z >= this.N) continue;
+
+                                const sourceX = blockStartX + sourceOffset;
+                                const targetX = sourceX - 1;
+
+                                if (sourceX >= this.N || targetX < blockStartX) continue;
+
+                                const srcIdx = this.idx(sourceX, y, z);
+                                const tgtIdx = this.idx(targetX, y, z);
+
+                                this.nodes[srcIdx].isPhase1 = true;
+                                this.nodes[tgtIdx].value += this.nodes[srcIdx].value;
+
+                                if (bx === 0 && by === 0 && bz === 0 && targetX === 0 && y === 0 && z === 0) {
+                                    this.rootSum += this.nodes[srcIdx].value;
+                                }
+
+                                setTimeout(() => {
+                                    this.nodes[srcIdx].completed = true;
+                                    this.nodes[srcIdx].isPhase1 = false;
+                                }, 150);
+                            }
+                        }
+                    }
+
+                    this.currentWave++;
+
+                    if (sourceOffset === 1) {
+                        setTimeout(() => {
+                            this.phase = 2;
+                            this.generateBlockLeaderTasks();
+                        }, 300);
+                    }
+                }
+            }
+        }
+    }
+
+    generateBlockLeaderTasks() {
+        this.blockLeaderTasks = [];
+        this.currentTask = null;
+        this.currentPath = [];
+        this.pathIndex = 0;
+
+        const numBlocks = Math.ceil(this.N / this.blockSize);
+
+        for (let bz = 0; bz < (this.is3D ? numBlocks : 1); bz++) {
+            for (let by = 0; by < numBlocks; by++) {
+                for (let bx = 0; bx < numBlocks; bx++) {
+                    if (bx === 0 && by === 0 && bz === 0) continue;
+
+                    const leaderX = bx * this.blockSize;
+                    const leaderY = by * this.blockSize;
+                    const leaderZ = this.is3D ? bz * this.blockSize : 0;
+
+                    if (leaderX >= this.N || leaderY >= this.N || (this.is3D && leaderZ >= this.N)) continue;
+
+                    this.blockLeaderTasks.push({
+                        from: {x: leaderX, y: leaderY, z: leaderZ},
+                        to: {x: 0, y: 0, z: 0}
+                    });
+                }
+            }
+        }
+    }
+
+    stepPhase2() {
+
+        if (!this.currentTask && this.blockLeaderTasks.length > 0) {
+            this.currentTask = this.blockLeaderTasks.shift();
+            this.currentPath = this.computePath(
+                this.currentTask.from.x, this.currentTask.from.y, this.currentTask.from.z,
+                0, 0, 0
+            );
+            this.pathIndex = 0;
+
+            this.nodes.forEach(n => {
+                n.isPhase2 = false;
+                n.isRouting = false;
+            });
+        }
+
+        if (this.currentTask) {
+            if (this.pathIndex < this.currentPath.length) {
+                const pos = this.currentPath[this.pathIndex];
+                const idx = this.idx(pos.x, pos.y, pos.z);
+
+                if (this.pathIndex === 0) {
+                    this.nodes[idx].isPhase2 = true;
+                } else if (this.pathIndex === this.currentPath.length - 1) {
+
+                    const fromIdx = this.idx(this.currentTask.from.x, this.currentTask.from.y, this.currentTask.from.z);
+                    const rootIdx = this.idx(0, 0, 0);
+                    this.nodes[rootIdx].value += this.nodes[fromIdx].value;
+                    this.rootSum = this.nodes[rootIdx].value;
+
+                    this.nodes[fromIdx].completed = true;
+                    this.nodes[fromIdx].isPhase2 = false;
+
+                    this.currentTask = null;
+                } else {
+                    this.nodes[idx].isRouting = true;
+                }
+
+                this.pathIndex++;
+            }
+        }
+
+        if (!this.currentTask && this.blockLeaderTasks.length === 0) {
+            this.phase = 3;
+            this.pause();
+        }
+    }
+
+    computePath(sx, sy, sz, dx, dy, dz) {
+        const path = [];
+        let x = sx, y = sy, z = sz;
+
+        path.push({x, y, z});
+
+        while (x !== dx) {
+            x += (dx > x) ? 1 : -1;
+            path.push({x, y, z});
+        }
+
+        while (y !== dy) {
+            y += (dy > y) ? 1 : -1;
+            path.push({x, y, z});
+        }
+
+        if (this.is3D) {
+            while (z !== dz) {
+                z += (dz > z) ? 1 : -1;
+                path.push({x, y, z});
+            }
+        }
+
+        return path;
+    }
+
+    renderGrid() {
+        const container = document.getElementById('viz-container');
+        container.innerHTML = '';
+
+        const layers = this.is3D ? this.N : 1;
+
+        for (let z = 0; z < layers; z++) {
+            const layerDiv = document.createElement('div');
+            layerDiv.className = 'layer-container';
+            if (this.is3D) {
+                layerDiv.innerHTML = `<div class="layer-label">Z-Layer ${z}</div>`;
+            }
+
+            const gridWrapper = document.createElement('div');
+            gridWrapper.className = 'grid-wrapper';
+
+            const grid = document.createElement('div');
+            grid.className = 'grid';
+            grid.style.gridTemplateColumns = `repeat(${this.N}, 40px)`;
+
+            for (let y = 0; y < this.N; y++) {
+                for (let x = 0; x < this.N; x++) {
+                    const i = this.idx(x, y, z);
+                    const cell = document.createElement('div');
+                    cell.className = 'node';
+                    cell.id = `node-${i}`;
+                    cell.innerText = `${x},${y}${this.is3D ? ','+z : ''}`;
+
+                    if (i === 0) cell.classList.add('root');
+
+                    const blockX = Math.floor(x / this.blockSize);
+                    const blockY = Math.floor(y / this.blockSize);
+                    const localX = x % this.blockSize;
+                    const localY = y % this.blockSize;
+
+                    if (localX === 0) cell.classList.add('block-left');
+                    if (localY === 0) cell.classList.add('block-top');
+                    if (localX === this.blockSize - 1 || x === this.N - 1) cell.classList.add('block-right');
+                    if (localY === this.blockSize - 1 || y === this.N - 1) cell.classList.add('block-bottom');
+
+                    grid.appendChild(cell);
+                }
+            }
+
+            gridWrapper.appendChild(grid);
+            layerDiv.appendChild(gridWrapper);
+            container.appendChild(layerDiv);
+        }
+        this.drawState();
+    }
+
+    drawState() {
+        this.nodes.forEach((n, i) => {
+            const el = document.getElementById(`node-${i}`);
+            if (!el) return;
+
+            el.classList.remove('phase1', 'phase2', 'completed', 'routing', 'block-leader');
+
+            if (n.isBlockLeader) {
+                el.classList.add('block-leader');
+            }
+
+            if (n.isPhase1) {
+                el.classList.add('phase1');
+            } else if (n.isPhase2) {
+                el.classList.add('phase2');
+            } else if (n.isRouting) {
+                el.classList.add('routing');
+            } else if (n.completed) {
+                el.classList.add('completed');
+            }
+        });
+    }
+
+    updateStats() {
+        document.getElementById('roundDisplay').innerText = this.round;
+
+        let phaseText = '';
+        if (this.phase === 1) {
+            if (this.is3D) {
+                if (this.subPhase === 1) phaseText = '1 (Intra-block: Z/Back→Front)';
+                else if (this.subPhase === 2) phaseText = '1 (Intra-block: Y/South→North)';
+                else if (this.subPhase === 3) phaseText = '1 (Intra-block: X/East→West)';
+            } else {
+                phaseText = this.subPhase === 1 ? '1 (Intra-block: South→North)' : '1 (Intra-block: East→West)';
+            }
+        } else if (this.phase === 2) {
+            phaseText = '2 (Inter-block: Leaders→Root)';
+        } else {
+            phaseText = 'Complete';
+        }
+
+        document.getElementById('phaseDisplay').innerText = phaseText;
+
+        let status = "Running";
+
+        if (this.phase >= 3) {
+            status = `✓ Completed - Final Sum: ${this.rootSum}`;
+        }
+
+        document.getElementById('statusDisplay').innerText = status;
+    }
+
+    play() {
+        if(this.running) return;
+        this.running = true;
+        const speed = parseInt(document.getElementById('speedSlider').value);
+        this.timer = setInterval(() => this.step(), speed);
+    }
+
+    pause() {
+        this.running = false;
+        clearInterval(this.timer);
+    }
+
+    reset() {
+        this.pause();
+        this.init();
+    }
+}
+
+const sim = new HierarchicalReduceSimulator();
+window.onload = () => sim.init();
+
+document.getElementById('dimSelect').onchange = () => sim.reset();
+document.getElementById('sizeInput').onchange = () => sim.reset();
+document.getElementById('speedSlider').oninput = function() {
+    if (sim.running) {
+        sim.pause();
+        sim.play();
+    }
+};
+</script>
+</body>
+</html>
